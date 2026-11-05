@@ -1,0 +1,9 @@
+build/
+dist/
+artifacts/
+*.zip
+*.pdb
+*.obj
+*.res
+settings.ini
+.tools/

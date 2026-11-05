@@ -1,0 +1,56 @@
+name: Build Stillbar
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Check release version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path src/version.hpp -Pattern '^#define STILLBAR_VERSION_STRING "([0-9]+\.[0-9]+\.[0-9]+)"$').Matches.Groups[1].Value
+          if (!$version -or $env:GITHUB_REF_NAME -cne "v$version") { throw 'Tag must match the application version.' }
+      - name: Build
+        shell: pwsh
+        run: |
+          ./build.ps1
+          if (!$?) { throw 'Build failed.' }
+          $build = @(Get-ChildItem dist -Directory)
+          if ($build.Count -ne 1) { throw 'Expected exactly one build directory.' }
+          ./package.ps1 -BuildDirectory $build[0].FullName
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: Stillbar-win-x64
+          path: |
+            artifacts/Stillbar-win-x64.zip
+            artifacts/SHA256SUMS.txt
+          if-no-files-found: error
+
+  draft-release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: Stillbar-win-x64
+          path: artifacts
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: gh release create "$RELEASE_TAG" artifacts/Stillbar-win-x64.zip artifacts/SHA256SUMS.txt --verify-tag --draft --title "Stillbar $RELEASE_TAG" --notes 'Draft build. Review the release notes and test the package before publication.'
